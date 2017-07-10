@@ -40,7 +40,7 @@ IMASK_PWR_ON            = 0x04  # Parameter: internal power on (1) or off (0)
 
 IMASK_FUNC              = 0x20  # Instruction: Function Set
 PMASK_8BIT_MODE         = 0x10  # Parameter: data length operation 8bit (1) or 4bit (0)
-PMASK_2LINES            = 0x08  # Parameter: two lines (1) or one line (0) display
+PMASK_LINES             = [0x00, 0x08]  # Parameter: two lines (1) or one line (0) display
 PMASK_FT_ENJP           = 0x00  # Parameter: character font set:    english-japanese (0,0)
 PMASK_FT_WE1            = 0x01  #                                   western europe I (0,1)
 PMASK_FT_ENRU           = 0x02  #                                   english-russian (1,0)
@@ -54,7 +54,24 @@ IMASK_DGRAM_ADDR        = 0x80  # Instruction: Set DGRAM Address
 # Constants
 # ===========================================================================
 
-WAIT_BF     = .0001
+WAIT_BF         = .0001 # wait time between consequtive checking of BF
+MAX_LINES       = 2     # maximum lines number
+DDRAM_ADDR      = [0x0, 0x40]   # DDRAM addresses per line
+
+# ===========================================================================
+# Translation table for russian letters
+# ===========================================================================
+
+TRANSLATE_RU = {
+    'А': 0x41, 'Б': 0xA0, 'В': 0x42, 'Г': 0xA1, 'Д': 0xE0, 'Е': 0x45, 'Ж': 0xA3, 'З': 0xA4,
+    'И': 0xA5, 'Й': 0xA6, 'К': 0x4B, 'Л': 0xA7, 'М': 0x4D, 'Н': 0x48, 'О': 0x4F, 'П': 0xA8,
+    'Р': 0x50, 'С': 0x43, 'Т': 0x54, 'У': 0xA9, 'Ф': 0xAA, 'Х': 0x58, 'Ц': 0xE1, 'Ч': 0xAB,
+    'Ш': 0xAC, 'Щ': 0xE2, 'Ъ': 0xAD, 'Ы': 0xAE, 'Ь': 0x62, 'Э': 0xAF, 'Ю': 0xB0, 'Я': 0xB1,
+    'Ё': 0xA2, 'ё': 0xB5,
+    'а': 0x61, 'б': 0xB2, 'в': 0xB3, 'г': 0xB4, 'д': 0xE3, 'е': 0x65, 'ж': 0xB6, 'з': 0xB7,
+    'и': 0xB8, 'й': 0xB9, 'к': 0xBA, 'л': 0xBB, 'м': 0xBC, 'н': 0xBD, 'о': 0x6F, 'п': 0xBE,
+    'р': 0x70, 'с': 0x63, 'т': 0xBF, 'у': 0x79, 'ф': 0xE4, 'х': 0x78, 'ц': 0xE5, 'ч': 0xC0,
+    'ш': 0xC1, 'щ': 0xE6, 'ъ': 0xC2, 'ы': 0xC3, 'ь': 0xC4, 'э': 0xC5, 'ю': 0xC6, 'я': 0xC7 }
 
 # ===========================================================================
 # LCD Winstar WS0010 Class
@@ -63,12 +80,14 @@ WAIT_BF     = .0001
 class LCD_WS0010:
 
     ## Constructor
-    def __init__(self, address, bus):
+    def __init__(self, address, bus, lines=2):
         self._address = address
         self._bus = bus
         self._device = i2cdev.i2cdev(address, bus)
-
-        self.init()
+        if lines > MAX_LINES:
+            lines = MAX_LINES
+        self._lines = lines
+        self.initialize()
 
     def latch(self, b):
         """Latch command with EN input."""
@@ -80,12 +99,14 @@ class LCD_WS0010:
 
         self.send4(b >> 4)
         self.send4(b)
+        self.checkBF()
 
     def sendD(self, b):
         """Send data byte."""
 
         self.send4(b >> 4, True)
         self.send4(b, True)
+        self.checkBF()
 
     def send4(self, b, rs=False):
         """Send low nibble of byte.
@@ -125,7 +146,7 @@ class LCD_WS0010:
         # Return AC
         return bfac
 
-    def init(self):
+    def initialize(self):
         """Initialize controller for necessary mode (currently 4-bit mode only)."""
 
         # Synchronization sequence for 4-bit mode
@@ -135,7 +156,38 @@ class LCD_WS0010:
         self.send4(0)
         self.send4(0)
 
-        # Function set
+        # Function Set: 4bit mode, necessary lines number, en-ru font table
         self.send4(IMASK_FUNC >> 4)
-        self.sendI(IMASK_FUNC | PMASK_2LINES | PMASK_FT_ENRU)
-        self.checkBF()
+        self.sendI(IMASK_FUNC | PMASK_LINES[self._lines - 1] | PMASK_FT_ENRU)
+
+        # Display ON/OFF Control: turn on display, cursor and blinking
+        self.sendI(IMASK_DISP_CTRL | PMASK_DISP_ON | PMASK_CURS_ON | PMASK_BLINK_ON)
+
+        # Clear Display and Return Home
+        self.sendI(IMASK_CLR_DISP)
+        self.sendI(IMASK_RET_HOME)
+
+        # Entry Mode Set: increment address, no shift
+        self.sendI(IMASK_ENTRY_MODE | PMASK_INC)
+
+    def puts(self, string, line, clear=True, rethome=True):
+        """Output a 'string' to specified 'line' of screen.
+        Clears screen if 'clear' is True. Return cursor to beginning if 'rethome' is True."""
+
+        if clear:
+            self.sendI(IMASK_CLR_DISP)
+        if rethome:
+            self.sendI(IMASK_RET_HOME)
+
+        # Circle line number (take line_number modulo line_numbers) and get DDRAM address
+        line = (line - 1) % 2 + 1
+        addr = DDRAM_ADDR[line - 1]
+        self.sendI(IMASK_DGRAM_ADDR | addr)
+
+        # Output string
+        for char in string:
+            try:
+                symbol = TRANSLATE_RU[char]
+            except KeyError:
+                symbol = ord(char) & 0xFF
+            self.sendD(symbol)
