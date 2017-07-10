@@ -1,7 +1,7 @@
 #! /usr/bin/python3
 
-import i2cdev.py
-import time
+import i2cdev
+from time import sleep
 
 # ===========================================================================
 # Control pins numbering
@@ -48,13 +48,14 @@ PMASK_FT_WE2            = 0x03  #                                   western euro
 
 IMASK_CGRAM_ADDR        = 0x40  # Instruction: Set CGRAM Address
 
-IMASK_DGRAM_ADDR        = 0x80  # Instruction: Set DGRAM Address
+IMASK_DDRAM_ADDR        = 0x80  # Instruction: Set DDRAM Address
 
 # ===========================================================================
 # Constants
 # ===========================================================================
 
 WAIT_BF         = .0001 # wait time between consequtive checking of BF
+WAIT_SLOW       = .01  # wait time between instructions
 MAX_LINES       = 2     # maximum lines number
 DDRAM_ADDR      = [0x0, 0x40]   # DDRAM addresses per line
 
@@ -91,7 +92,9 @@ class LCD_WS0010:
 
     def latch(self, b):
         """Latch command with EN input."""
+        sleep(WAIT_SLOW)
         self._device.write8(b | PIN_EN)
+        sleep(WAIT_SLOW)
         self._device.write8(b)
 
     def sendI(self, b):
@@ -126,7 +129,7 @@ class LCD_WS0010:
 
             # Read high nibble of BFAC byte
             self._device.write8(PIN_RW | PIN_EN)
-            bfac = self._device.read8() << 4
+            bfac = (self._device.read8() & 0xF) << 4
             self._device.write8(PIN_RW)
 
             # Read low nibble of BFAC byte to t3
@@ -136,7 +139,7 @@ class LCD_WS0010:
 
             # Check BF
             if bfac & RMASK_BF:
-                time.sleep(WAIT_BF)
+                sleep(WAIT_BF)
             else:
                 break
 
@@ -155,20 +158,27 @@ class LCD_WS0010:
         self.send4(0)
         self.send4(0)
         self.send4(0)
+        sleep(WAIT_SLOW)
 
         # Function Set: 4bit mode, necessary lines number, en-ru font table
         self.send4(IMASK_FUNC >> 4)
+        sleep(WAIT_SLOW)
         self.sendI(IMASK_FUNC | PMASK_LINES[self._lines - 1] | PMASK_FT_ENRU)
+        sleep(WAIT_SLOW)
 
         # Display ON/OFF Control: turn on display, cursor and blinking
         self.sendI(IMASK_DISP_CTRL | PMASK_DISP_ON | PMASK_CURS_ON | PMASK_BLINK_ON)
+        sleep(WAIT_SLOW)
 
         # Clear Display and Return Home
         self.sendI(IMASK_CLR_DISP)
+        sleep(WAIT_SLOW)
         self.sendI(IMASK_RET_HOME)
+        sleep(WAIT_SLOW)
 
         # Entry Mode Set: increment address, no shift
         self.sendI(IMASK_ENTRY_MODE | PMASK_INC)
+        sleep(WAIT_SLOW)
 
     def puts(self, string, line, clear=True, rethome=True):
         """Output a 'string' to specified 'line' of screen.
@@ -182,7 +192,8 @@ class LCD_WS0010:
         # Circle line number (take line_number modulo line_numbers) and get DDRAM address
         line = (line - 1) % 2 + 1
         addr = DDRAM_ADDR[line - 1]
-        self.sendI(IMASK_DGRAM_ADDR | addr)
+        self.sendI(IMASK_DDRAM_ADDR | addr)
+        sleep(WAIT_SLOW)
 
         # Output string
         for char in string:
@@ -191,3 +202,4 @@ class LCD_WS0010:
             except KeyError:
                 symbol = ord(char) & 0xFF
             self.sendD(symbol)
+            sleep(WAIT_SLOW)
