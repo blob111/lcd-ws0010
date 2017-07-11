@@ -54,8 +54,8 @@ IMASK_DDRAM_ADDR        = 0x80  # Instruction: Set DDRAM (Display Data RAM) Addr
 # Constants
 # ===========================================================================
 
-WAIT_BF         = .01   # wait time between consequtive checking of BF
-WAIT_SLOW       = .001  # wait time between instructions
+WAIT_BF         = .001  # wait time between consequtive checking of BF
+WAIT_SLOW       = .0001 # wait time between instructions
 MAX_LINES       = 2     # maximum lines number
 DDRAM_ADDR      = [0x0, 0x40]   # initial DDRAM addresses per line
 
@@ -93,9 +93,7 @@ class WS0010:
     def latch(self, b):
         """Latch command with EN input."""
         self._device.write8(b | PIN_EN)
-        sleep(WAIT_SLOW)
         self._device.write8(b)
-        sleep(WAIT_SLOW)
 
     def sendI(self, b):
         """Send instruction byte."""
@@ -119,7 +117,6 @@ class WS0010:
         if rs:
             b |= PIN_RS
         self._device.write8(b)
-        sleep(WAIT_SLOW)
         self.latch(b)
 
     def checkBF(self):
@@ -128,23 +125,18 @@ class WS0010:
 
         # Set R/W bit
         self._device.write8(PIN_RW)
-        sleep(WAIT_SLOW)
 
         while True:
 
             # Read high nibble of BFAC byte
             self._device.write8(PIN_RW | PIN_EN)
-            sleep(WAIT_SLOW)
             bfac = (self._device.read8() & 0xF) << 4
             self._device.write8(PIN_RW)
-            sleep(WAIT_SLOW)
 
             # Read low nibble of BFAC byte
             self._device.write8(PIN_RW | PIN_EN)
-            sleep(WAIT_SLOW)
             bfac |= self._device.read8() & 0xF
             self._device.write8(PIN_RW)
-            sleep(WAIT_SLOW)
 
             # Check BF
             if bfac & RMASK_BF:
@@ -154,7 +146,6 @@ class WS0010:
 
         # Clear R/W bit
         self._device.write8(0)
-        sleep(WAIT_SLOW)
 
         # Return AC
         return bfac
@@ -182,6 +173,11 @@ class WS0010:
 
         # Entry Mode Set: increment address, no shift
         self.sendI(IMASK_ENTRY_MODE | PMASK_INC)
+        
+    def poweroff(self):
+        """Turn off power."""
+        
+        self.sendI(IMASK_GCMODE_PWR)
 
     def puts(self, string, line, clear=True, rethome=True):
         """Output a 'string' to specified 'line' of screen.
@@ -204,4 +200,3 @@ class WS0010:
             except KeyError:
                 symbol = ord(char) & 0xFF
             self.sendD(symbol)
-            sleep(WAIT_SLOW)
