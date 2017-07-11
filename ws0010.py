@@ -46,18 +46,18 @@ PMASK_FT_WE1            = 0x01  #                                   western euro
 PMASK_FT_ENRU           = 0x02  #                                   english-russian (1,0)
 PMASK_FT_WE2            = 0x03  #                                   western europe II (1,1)
 
-IMASK_CGRAM_ADDR        = 0x40  # Instruction: Set CGRAM Address
+IMASK_CGRAM_ADDR        = 0x40  # Instruction: Set CGRAM (Character Generator RAM) Address
 
-IMASK_DDRAM_ADDR        = 0x80  # Instruction: Set DDRAM Address
+IMASK_DDRAM_ADDR        = 0x80  # Instruction: Set DDRAM (Display Data RAM) Address
 
 # ===========================================================================
 # Constants
 # ===========================================================================
 
-WAIT_BF         = .0001 # wait time between consequtive checking of BF
-WAIT_SLOW       = .01  # wait time between instructions
+WAIT_BF         = .01   # wait time between consequtive checking of BF
+WAIT_SLOW       = .001  # wait time between instructions
 MAX_LINES       = 2     # maximum lines number
-DDRAM_ADDR      = [0x0, 0x40]   # DDRAM addresses per line
+DDRAM_ADDR      = [0x0, 0x40]   # initial DDRAM addresses per line
 
 # ===========================================================================
 # Translation table for russian letters
@@ -78,7 +78,7 @@ TRANSLATE_RU = {
 # LCD Winstar WS0010 Class
 # ===========================================================================
 
-class LCD_WS0010:
+class WS0010:
 
     ## Constructor
     def __init__(self, address, bus, lines=2):
@@ -92,10 +92,10 @@ class LCD_WS0010:
 
     def latch(self, b):
         """Latch command with EN input."""
-        sleep(WAIT_SLOW)
         self._device.write8(b | PIN_EN)
         sleep(WAIT_SLOW)
         self._device.write8(b)
+        sleep(WAIT_SLOW)
 
     def sendI(self, b):
         """Send instruction byte."""
@@ -119,23 +119,32 @@ class LCD_WS0010:
         if rs:
             b |= PIN_RS
         self._device.write8(b)
+        sleep(WAIT_SLOW)
         self.latch(b)
 
     def checkBF(self):
         """Check BF (Busy Flag) and wait for BF will cleared.
         Return AC (Address Counter)."""
 
+        # Set R/W bit
+        self._device.write8(PIN_RW)
+        sleep(WAIT_SLOW)
+
         while True:
 
             # Read high nibble of BFAC byte
             self._device.write8(PIN_RW | PIN_EN)
+            sleep(WAIT_SLOW)
             bfac = (self._device.read8() & 0xF) << 4
             self._device.write8(PIN_RW)
+            sleep(WAIT_SLOW)
 
-            # Read low nibble of BFAC byte to t3
+            # Read low nibble of BFAC byte
             self._device.write8(PIN_RW | PIN_EN)
+            sleep(WAIT_SLOW)
             bfac |= self._device.read8() & 0xF
             self._device.write8(PIN_RW)
+            sleep(WAIT_SLOW)
 
             # Check BF
             if bfac & RMASK_BF:
@@ -145,6 +154,7 @@ class LCD_WS0010:
 
         # Clear R/W bit
         self._device.write8(0)
+        sleep(WAIT_SLOW)
 
         # Return AC
         return bfac
@@ -158,27 +168,20 @@ class LCD_WS0010:
         self.send4(0)
         self.send4(0)
         self.send4(0)
-        sleep(WAIT_SLOW)
 
         # Function Set: 4bit mode, necessary lines number, en-ru font table
         self.send4(IMASK_FUNC >> 4)
-        sleep(WAIT_SLOW)
         self.sendI(IMASK_FUNC | PMASK_LINES[self._lines - 1] | PMASK_FT_ENRU)
-        sleep(WAIT_SLOW)
 
         # Display ON/OFF Control: turn on display, cursor and blinking
         self.sendI(IMASK_DISP_CTRL | PMASK_DISP_ON | PMASK_CURS_ON | PMASK_BLINK_ON)
-        sleep(WAIT_SLOW)
 
         # Clear Display and Return Home
         self.sendI(IMASK_CLR_DISP)
-        sleep(WAIT_SLOW)
         self.sendI(IMASK_RET_HOME)
-        sleep(WAIT_SLOW)
 
         # Entry Mode Set: increment address, no shift
         self.sendI(IMASK_ENTRY_MODE | PMASK_INC)
-        sleep(WAIT_SLOW)
 
     def puts(self, string, line, clear=True, rethome=True):
         """Output a 'string' to specified 'line' of screen.
@@ -193,7 +196,6 @@ class LCD_WS0010:
         line = (line - 1) % 2 + 1
         addr = DDRAM_ADDR[line - 1]
         self.sendI(IMASK_DDRAM_ADDR | addr)
-        sleep(WAIT_SLOW)
 
         # Output string
         for char in string:
