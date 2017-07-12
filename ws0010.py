@@ -25,7 +25,7 @@ IMASK_ENTRY_MODE        = 0x04  # Instruction: Entry Mode
 PMASK_INC               = 0x02  # Parameter: I/D, address increment (1) or decrement (0)
 PMASK_DISP_SHIFT_EN     = 0x01  # Parameter: S, display shift enable (1) or disable (0)
 
-IMASK_DISP_CTRL         = 0x08  # Instruction: Display ON/OFF Control
+IMASK_DISP_CTL          = 0x08  # Instruction: Display ON/OFF Control
 PMASK_DISP_ON           = 0x04  # Parameter: D, display on (1) or off (0)
 PMASK_CURS_ON           = 0x02  # Parameter: C, cursor on (1) or off (0)
 PMASK_BLINK_ON          = 0x01  # Parameter: B, blinking on (1) or off (0)
@@ -58,6 +58,7 @@ WAIT_BF         = .001  # wait time between consequtive checking of BF
 WAIT_SLOW       = .0001 # wait time between instructions
 MAX_LINES       = 2     # maximum lines number
 DDRAM_ADDR      = [0x0, 0x40]   # initial DDRAM addresses per line
+DDRAM_SIZE      = 128   # DDRAM size in bytes
 
 # ===========================================================================
 # Translation table for russian letters
@@ -74,6 +75,8 @@ TRANSLATE_RU = {
     'р': 0x70, 'с': 0x63, 'т': 0xBF, 'у': 0x79, 'ф': 0xE4, 'х': 0x78, 'ц': 0xE5, 'ч': 0xC0,
     'ш': 0xC1, 'щ': 0xE6, 'ъ': 0xC2, 'ы': 0xC3, 'ь': 0xC4, 'э': 0xC5, 'ю': 0xC6, 'я': 0xC7 }
 
+UNTRANSLATE_RU = {v: k for k, v in TRANSLATE_RU.items()}
+
 # ===========================================================================
 # LCD Winstar WS0010 Class
 # ===========================================================================
@@ -82,13 +85,44 @@ class WS0010:
 
     ## Constructor
     def __init__(self, address, bus, lines=2):
-        self._address = address
-        self._bus = bus
+        self._address = address # I2C address of PCF8754
+        self._bus = bus         # I2C bus number
         self._device = i2cdev.i2cdev(address, bus)
         if lines > MAX_LINES:
             lines = MAX_LINES
-        self._lines = lines
+        self._lines = lines     # lines of screen
+        self._disp_on = False
+        self._curs_on = False
+        self._blink_on = False
         self.initialize()
+
+    @staticmethod
+    def _dispctl_setter(prop, param):
+        """Helper function. Returns property value based on property value itself and parameter."""
+        if param in True, False:
+            return param
+        else:
+            return prop
+
+    def _set_disp_on(self, p):
+        """Set 'disp_on' property."""
+        self._disp_on = _dispctl_setter(self._disp_on, p)
+
+    def _set_curs_on(self, p):
+        """Set 'disp_on' property."""
+        self._curs_on = _dispctl_setter(self._curs_on, p)
+
+    def _set_blink_on(self, p):
+        """Set 'blink_on' property."""
+        self._blink_on = _dispctl_setter(self._blink_on, p)
+
+    def _dispctl_make_instr(self):
+        """Make Display ON/OFF Control instruction byte based on property values."""
+        instr = IMASK_DISP_CTL
+        for (p, m) in (self._disp_on, PMASK_DISP_ON), (self._curs_on, PMASK_CURS_ON), (self._blink_on, PMASK_BLINK_ON):
+            if p:
+                instr |= m
+        return instr
 
     def latch(self, b):
         """Latch command with EN input."""
@@ -123,7 +157,7 @@ class WS0010:
         """Check BF (Busy Flag) and wait for BF will cleared.
         Return AC (Address Counter)."""
 
-        # Set R/W bit
+        # Set R/W pin
         self._device.write8(PIN_RW)
 
         while True:
@@ -144,11 +178,35 @@ class WS0010:
             else:
                 break
 
-        # Clear R/W bit
+        # Clear R/W pin
         self._device.write8(0)
 
         # Return AC
         return bfac
+
+    def dispctl_set(self, disp_on=None, curs_on=None, blink_on=None):
+        """Set Display ON/OFF Control properties for display, cursor and blinking.
+        Write the properties to LCD controller.
+        Parameter values:
+        True - property turned ON;
+        False - property turned OFF;
+        any other value - property not changed."""
+
+        self._set_disp_on(disp_on)
+        self._set_curs_on(curs_on)
+        self._set_blink_on(blink_on)
+        instr = self._dispctl_make_instr()
+        self.sendI(instr)
+
+    def dispctl_get(self):
+        """Return Display ON/OFF Control properties for display, cursor and blinking.
+        Returned properties grouped in tuple (disp_on, curs_on, blink_on).
+        Returned values:
+        True - property turned ON;
+        False - property turned OFF."""
+
+        res = (self._disp_on, self._curs_on, self._blink_on)
+        return res
 
     def initialize(self):
         """Initialize controller for necessary mode (currently 4-bit mode only)."""
@@ -164,19 +222,16 @@ class WS0010:
         self.send4(IMASK_FUNC >> 4)
         self.sendI(IMASK_FUNC | PMASK_LINES[self._lines - 1] | PMASK_FT_ENRU)
 
-        # Display ON/OFF Control: turn on display, cursor and blinking
-        self.sendI(IMASK_DISP_CTRL | PMASK_DISP_ON | PMASK_CURS_ON | PMASK_BLINK_ON)
-
         # Clear Display and Return Home
         self.sendI(IMASK_CLR_DISP)
         self.sendI(IMASK_RET_HOME)
 
         # Entry Mode Set: increment address, no shift
         self.sendI(IMASK_ENTRY_MODE | PMASK_INC)
-        
+
     def poweroff(self):
         """Turn off power."""
-        
+
         self.sendI(IMASK_GCMODE_PWR)
 
     def puts(self, string, line, clear=True, rethome=True):
@@ -200,3 +255,53 @@ class WS0010:
             except KeyError:
                 symbol = ord(char) & 0xFF
             self.sendD(symbol)
+
+    def read_ddram(self, ac=0, size=1):
+        """Read 'size' bytes of data from 'ac' position."""
+
+        if ac < 0:
+            ac = 0
+        if ac > DDRAM_SIZE:
+            ac = DDRAM_SIZE - 1
+        if size < 1:
+            size = 1
+        if size > DDRAM_SIZE:
+            size = DDRAM_SIZE
+
+        # Save current address and set it to 'ac'
+        saved_ac = self.checkBF()
+        self.sendI(IMASK_DDRAM_ADDR | ac)
+
+        # Set RS and R/W pins
+        ctl = PIN_RS | PIN_RW
+        ctl_en = ctl | PIN_EN
+        self._device.write8(ctl)
+
+        # Read DDRAM
+        str = ''
+        while size:
+
+            # Read high nibble of DDRAM location
+            self._device.write8(ctl_en)
+            symbol = (self._device.read8() & 0xF) << 4
+            self._device.write8(ctl)
+
+            # Read low nibble of DDRAM location
+            self._device.write8(ctl_en)
+            symbol |= self._device.read8() & 0xF
+            self._device.write8(ctl)
+
+            # Convert symbol to character
+            try:
+                char = UNTRANSLATE_RU[symbol]
+            except KeyError:
+                char = chr(symbol)
+            str += char
+
+            # Decrement size
+            size -= 1
+
+        # Clear RS and R/W pins
+        self._device.write8(0)
+
+        return str
