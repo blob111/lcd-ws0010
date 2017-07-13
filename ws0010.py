@@ -99,22 +99,22 @@ class WS0010:
     @staticmethod
     def _dispctl_setter(prop, param):
         """Helper function. Returns property value based on property value itself and parameter."""
-        if param in True, False:
+        if param in (True, False):
             return param
         else:
             return prop
 
     def _set_disp_on(self, p):
         """Set 'disp_on' property."""
-        self._disp_on = _dispctl_setter(self._disp_on, p)
+        self._disp_on = self._dispctl_setter(self._disp_on, p)
 
     def _set_curs_on(self, p):
         """Set 'disp_on' property."""
-        self._curs_on = _dispctl_setter(self._curs_on, p)
+        self._curs_on = self._dispctl_setter(self._curs_on, p)
 
     def _set_blink_on(self, p):
         """Set 'blink_on' property."""
-        self._blink_on = _dispctl_setter(self._blink_on, p)
+        self._blink_on = self._dispctl_setter(self._blink_on, p)
 
     def _dispctl_make_instr(self):
         """Make Display ON/OFF Control instruction byte based on property values."""
@@ -275,6 +275,7 @@ class WS0010:
         # Set RS and R/W pins
         ctl = PIN_RS | PIN_RW
         ctl_en = ctl | PIN_EN
+        self._device.write8(PIN_RW) ### !!!
         self._device.write8(ctl)
 
         # Read DDRAM
@@ -283,13 +284,21 @@ class WS0010:
 
             # Read high nibble of DDRAM location
             self._device.write8(ctl_en)
+            sleep(WAIT_SLOW) ### !!!
             symbol = (self._device.read8() & 0xF) << 4
-            self._device.write8(ctl)
+            self._device.write8(ctl) ### !!!
+            xh = self._device.read8() ### !!!
+            sleep(WAIT_SLOW) ### !!!
+            xh_slow = self._device.read8() ### !!!
 
             # Read low nibble of DDRAM location
             self._device.write8(ctl_en)
+            sleep(WAIT_SLOW) ### !!!
             symbol |= self._device.read8() & 0xF
-            self._device.write8(ctl)
+            self._device.write8(ctl) ### !!!
+            xl = self._device.read8() ### !!!
+            sleep(WAIT_SLOW) ### !!!
+            xl_slow = self._device.read8() ### !!!
 
             # Convert symbol to character
             try:
@@ -303,5 +312,8 @@ class WS0010:
 
         # Clear RS and R/W pins
         self._device.write8(0)
+
+        # Restore saved address counter
+        self.sendI(IMASK_DDRAM_ADDR | saved_ac)
 
         return str
