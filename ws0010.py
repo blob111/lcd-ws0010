@@ -31,7 +31,7 @@ PMASK_CURS_ON           = 0x02  # Parameter: C, cursor on (1) or off (0)
 PMASK_BLINK_ON          = 0x01  # Parameter: B, blinking on (1) or off (0)
 
 IMASK_CURS_DISP_SHIFT   = 0x10  # Instruction: Cursor/Display Shift
-PMASK_DISP_SHIFT_ON     = 0x08  # Parameter: display shift (1) or cursor move (0)
+PMASK_DISP_SHIFT        = 0x08  # Parameter: display shift (1) or cursor move (0)
 PMASK_SHIFT_MOVE_RIGHT  = 0x04  # Parameter: shift/move right (1) or left (0)
 
 IMASK_GCMODE_PWR        = 0x13  # Instruction: Graphics/Character Mode and Power ON/OFF Control
@@ -94,10 +94,12 @@ class WS0010:
         self._disp_on = False
         self._curs_on = False
         self._blink_on = False
+        self._increment = False
+        self._display_shift = False
         self.initialize()
 
     @staticmethod
-    def _dispctl_setter(prop, param):
+    def _prop_setter(prop, param):
         """Helper function. Returns property value based on property value itself and parameter."""
         if param in (True, False):
             return param
@@ -106,20 +108,36 @@ class WS0010:
 
     def _set_disp_on(self, p):
         """Set 'disp_on' property."""
-        self._disp_on = self._dispctl_setter(self._disp_on, p)
+        self._disp_on = self._prop_setter(self._disp_on, p)
 
     def _set_curs_on(self, p):
         """Set 'disp_on' property."""
-        self._curs_on = self._dispctl_setter(self._curs_on, p)
+        self._curs_on = self._prop_setter(self._curs_on, p)
 
     def _set_blink_on(self, p):
         """Set 'blink_on' property."""
-        self._blink_on = self._dispctl_setter(self._blink_on, p)
+        self._blink_on = self._prop_setter(self._blink_on, p)
+
+    def _set_increment(self, p):
+        """Set 'increment' property."""
+        self._increment = self._prop_setter(self._increment, p)
+
+    def _set_display_shift(self, p):
+        """Set 'display_shift' property."""
+        self._display_shift = self._prop_setter(self._display_shift, p)
 
     def _dispctl_make_instr(self):
-        """Make Display ON/OFF Control instruction byte based on property values."""
+        """Make Display ON/OFF Control instruction byte according to property values."""
         instr = IMASK_DISP_CTL
         for (p, m) in (self._disp_on, PMASK_DISP_ON), (self._curs_on, PMASK_CURS_ON), (self._blink_on, PMASK_BLINK_ON):
+            if p:
+                instr |= m
+        return instr
+
+    def _emode_make_instr(self):
+        """Make Entry Mode instruction byte according to property values."""
+        instr = IMASK_ENTRY_MODE
+        for (p, m) in (self._increment, PMASK_INC), (self._display_shift, PMASK_DISP_SHIFT_EN):
             if p:
                 instr |= m
         return instr
@@ -208,6 +226,29 @@ class WS0010:
         res = (self._disp_on, self._curs_on, self._blink_on)
         return res
 
+    def emode_set(self, increment=None, display_shift=None):
+        """Set Entry Mode properties for increment/decrement and display shift.
+        Write the properties to LCD controller.
+        Parameter values:
+        True - property turned ON;
+        False - property turned OFF;
+        any other value - property not changed."""
+
+        self._set_increment(increment)
+        self._set_display_shift(display_shift)
+        instr = self._emode_make_instr()
+        self.sendI(instr)
+
+    def emode_get(self):
+        """Return Display ON/OFF Control properties for display, cursor and blinking.
+        Returned properties grouped in tuple (disp_on, curs_on, blink_on).
+        Returned values:
+        True - property turned ON;
+        False - property turned OFF."""
+
+        res = (self._disp_on, self._curs_on, self._blink_on)
+        return res
+
     def initialize(self):
         """Initialize controller for necessary mode (currently 4-bit mode only)."""
 
@@ -225,9 +266,6 @@ class WS0010:
         # Clear Display and Return Home
         self.sendI(IMASK_CLR_DISP)
         self.sendI(IMASK_RET_HOME)
-
-        # Entry Mode Set: increment address, no shift
-        self.sendI(IMASK_ENTRY_MODE | PMASK_INC)
 
     def poweroff(self):
         """Turn off power."""
@@ -317,3 +355,19 @@ class WS0010:
         self.sendI(IMASK_DDRAM_ADDR | saved_ac)
 
         return str
+
+    def shift_cursor_right(self):
+        """Move cursor right. Address counter incremented."""
+        self.sendI(IMASK_CURS_DISP_SHIFT | PMASK_SHIFT_MOVE_RIGHT)
+
+    def shift_cursor_left(self):
+        """Move cursor left. Address counter decremented."""
+        self.sendI(IMASK_CURS_DISP_SHIFT)
+
+    def shift_display_right(self):
+        """Shift display right."""
+        self.sendI(IMASK_CURS_DISP_SHIFT | PMASK_DISP_SHIFT | PMASK_SHIFT_MOVE_RIGHT)
+
+    def shift_cursor_left(self):
+        """Shift display left."""
+        self.sendI(IMASK_CURS_DISP_SHIFT | PMASK_DISP_SHIFT)
