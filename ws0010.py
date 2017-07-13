@@ -321,19 +321,23 @@ class WS0010:
         while size:
 
             # Read high nibble of DDRAM location
+            self._device.write8(ctl) ### !!!
             self._device.write8(ctl_en)
-            sleep(WAIT_SLOW) ### !!!
+            #sleep(WAIT_SLOW) ### !!!
             symbol = (self._device.read8() & 0xF) << 4
             self._device.write8(ctl) ### !!!
+            self._device.write8(0) ### !!!
             xh = self._device.read8() ### !!!
             sleep(WAIT_SLOW) ### !!!
             xh_slow = self._device.read8() ### !!!
 
             # Read low nibble of DDRAM location
+            self._device.write8(ctl) ### !!!
             self._device.write8(ctl_en)
-            sleep(WAIT_SLOW) ### !!!
+            #sleep(WAIT_SLOW) ### !!!
             symbol |= self._device.read8() & 0xF
             self._device.write8(ctl) ### !!!
+            self._device.write8(0) ### !!!
             xl = self._device.read8() ### !!!
             sleep(WAIT_SLOW) ### !!!
             xl_slow = self._device.read8() ### !!!
