@@ -10,6 +10,7 @@ from time import sleep
 PIN_RS      = 0x10
 PIN_RW      = 0x20
 PIN_EN      = 0x40
+PIN_DATA    = 0x0F
 
 # ===========================================================================
 # Masks
@@ -249,6 +250,17 @@ class WS0010:
         res = (self._disp_on, self._curs_on, self._blink_on)
         return res
 
+    def clear_display(self):
+        """Clear display (write 0x20 to whole DDRAM space)."""
+
+        self.sendI(IMASK_CLR_DISP)
+
+    def ret_home(self):
+        """Return home (set DDRAM address counter to 0 and return display to default position if it was shifted).
+        DDRAM space is not changed."""
+
+        self.sendI(IMASK_RET_HOME)
+
     def initialize(self):
         """Initialize controller for necessary mode (currently 4-bit mode only)."""
 
@@ -311,9 +323,9 @@ class WS0010:
         self.sendI(IMASK_DDRAM_ADDR | ac)
 
         # Set RS and R/W pins
-        ctl = PIN_RS | PIN_RW
+        ctl = PIN_RS | PIN_RW | PIN_DATA
         ctl_en = ctl | PIN_EN
-        self._device.write8(PIN_RW) ### !!!
+        #self._device.write8(PIN_RW) ### !!!
         self._device.write8(ctl)
 
         # Read DDRAM
@@ -321,26 +333,24 @@ class WS0010:
         while size:
 
             # Read high nibble of DDRAM location
-            self._device.write8(ctl) ### !!!
+            #self._device.write8(ctl) ### !!!
             self._device.write8(ctl_en)
             #sleep(WAIT_SLOW) ### !!!
             symbol = (self._device.read8() & 0xF) << 4
-            self._device.write8(ctl) ### !!!
-            self._device.write8(0) ### !!!
-            xh = self._device.read8() ### !!!
-            sleep(WAIT_SLOW) ### !!!
-            xh_slow = self._device.read8() ### !!!
+            self._device.write8(ctl)
+            #xh = self._device.read8() ### !!!
+            #sleep(WAIT_SLOW) ### !!!
+            #xh_slow = self._device.read8() ### !!!
 
             # Read low nibble of DDRAM location
-            self._device.write8(ctl) ### !!!
+            #self._device.write8(ctl) ### !!!
             self._device.write8(ctl_en)
             #sleep(WAIT_SLOW) ### !!!
             symbol |= self._device.read8() & 0xF
-            self._device.write8(ctl) ### !!!
-            self._device.write8(0) ### !!!
-            xl = self._device.read8() ### !!!
-            sleep(WAIT_SLOW) ### !!!
-            xl_slow = self._device.read8() ### !!!
+            self._device.write8(ctl)
+            #xl = self._device.read8() ### !!!
+            #sleep(WAIT_SLOW) ### !!!
+            #xl_slow = self._device.read8() ### !!!
 
             # Convert symbol to character
             try:
@@ -360,11 +370,11 @@ class WS0010:
 
         return str
 
-    def shift_cursor_right(self):
+    def move_cursor_right(self):
         """Move cursor right. Address counter incremented."""
         self.sendI(IMASK_CURS_DISP_SHIFT | PMASK_SHIFT_MOVE_RIGHT)
 
-    def shift_cursor_left(self):
+    def move_cursor_left(self):
         """Move cursor left. Address counter decremented."""
         self.sendI(IMASK_CURS_DISP_SHIFT)
 
