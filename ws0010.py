@@ -5,6 +5,9 @@ from time import sleep
 
 # ===========================================================================
 # Control pins numbering
+# URGENT NOTE. Citation from PCF8754 data sheet: "The I/Os should be high
+# before being used as inputs". Therefore while reading it must be set
+# data pins high (... | PIN_DATA)
 # ===========================================================================
 
 PIN_RS      = 0x10
@@ -177,19 +180,21 @@ class WS0010:
         Return AC (Address Counter)."""
 
         # Set R/W pin
-        self._device.write8(PIN_RW)
+        ctl = PIN_RW | PIN_DATA
+        ctl_en = ctl | PIN_EN
+        self._device.write8(ctl)
 
         while True:
 
             # Read high nibble of BFAC byte
-            self._device.write8(PIN_RW | PIN_EN)
+            self._device.write8(ctl_en)
             bfac = (self._device.read8() & 0xF) << 4
-            self._device.write8(PIN_RW)
+            self._device.write8(ctl)
 
             # Read low nibble of BFAC byte
-            self._device.write8(PIN_RW | PIN_EN)
+            self._device.write8(ctl_en)
             bfac |= self._device.read8() & 0xF
-            self._device.write8(PIN_RW)
+            self._device.write8(ctl)
 
             # Check BF
             if bfac & RMASK_BF:
@@ -284,14 +289,8 @@ class WS0010:
 
         self.sendI(IMASK_GCMODE_PWR)
 
-    def puts(self, string, line, clear=True, rethome=True):
-        """Output a 'string' to specified 'line' of screen.
-        Clears screen if 'clear' is True. Return cursor to beginning if 'rethome' is True."""
-
-        if clear:
-            self.sendI(IMASK_CLR_DISP)
-        if rethome:
-            self.sendI(IMASK_RET_HOME)
+    def puts(self, string, line):
+        """Output a 'string' to specified 'line' of screen."""
 
         # Circle line number (take line_number modulo line_numbers) and get DDRAM address
         line = (line - 1) % 2 + 1
@@ -325,7 +324,6 @@ class WS0010:
         # Set RS and R/W pins
         ctl = PIN_RS | PIN_RW | PIN_DATA
         ctl_en = ctl | PIN_EN
-        #self._device.write8(PIN_RW) ### !!!
         self._device.write8(ctl)
 
         # Read DDRAM
@@ -333,24 +331,14 @@ class WS0010:
         while size:
 
             # Read high nibble of DDRAM location
-            #self._device.write8(ctl) ### !!!
             self._device.write8(ctl_en)
-            #sleep(WAIT_SLOW) ### !!!
             symbol = (self._device.read8() & 0xF) << 4
             self._device.write8(ctl)
-            #xh = self._device.read8() ### !!!
-            #sleep(WAIT_SLOW) ### !!!
-            #xh_slow = self._device.read8() ### !!!
 
             # Read low nibble of DDRAM location
-            #self._device.write8(ctl) ### !!!
             self._device.write8(ctl_en)
-            #sleep(WAIT_SLOW) ### !!!
             symbol |= self._device.read8() & 0xF
             self._device.write8(ctl)
-            #xl = self._device.read8() ### !!!
-            #sleep(WAIT_SLOW) ### !!!
-            #xl_slow = self._device.read8() ### !!!
 
             # Convert symbol to character
             try:
@@ -382,6 +370,6 @@ class WS0010:
         """Shift display right."""
         self.sendI(IMASK_CURS_DISP_SHIFT | PMASK_DISP_SHIFT | PMASK_SHIFT_MOVE_RIGHT)
 
-    def shift_cursor_left(self):
+    def shift_display_left(self):
         """Shift display left."""
         self.sendI(IMASK_CURS_DISP_SHIFT | PMASK_DISP_SHIFT)

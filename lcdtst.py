@@ -63,7 +63,7 @@ def move_cursor(lcd):
     """Move cursor."""
 
     choices = ['Left', 'Right']
-    dir = ask_choices(choices, 'Where do you want to move cursor?')
+    dir = ask_choice(choices, 'Where do you want to move cursor?')
     if dir == 1:
         f = lcd.move_cursor_left
     else: # dir is 2
@@ -76,7 +76,7 @@ def shift_display(lcd):
     """Shift display."""
 
     choices = ['Left', 'Right']
-    dir = ask_choices(choices, 'Where do you want to shift display?')
+    dir = ask_choice(choices, 'Where do you want to shift display?')
     if dir == 1:
         f = lcd.shift_display_left
     else: # dir is 2
@@ -214,7 +214,7 @@ lcd.dispctl_set(disp_on=True, curs_on=True, blink_on=True)
 sys.stdout.write(' done\n')
 
 while True:
-    top_choices_list = list(map(lambda x: x[0], top_choices)
+    top_choices_list = list(map(lambda x: x[0], top_choices))
     k = ask_choice(top_choices_list, 'Main loop')
     print('\nYour choice: {}) {}\n'.format(k, top_choices_list[k - 1]))
     top_choices[k - 1][1](lcd)
