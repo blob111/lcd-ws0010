@@ -56,7 +56,7 @@ def display_out(lcd):
     string = input('Enter string: ')
     line = ask_int('line number', 1, 2)
     sys.stdout.write('Sending string to line {} ...'.format(line))
-    lcd.puts(string, line)
+    lcd.putline(string, line)
     sys.stdout.write(' done\n')
 
 def move_cursor(lcd):
@@ -166,6 +166,22 @@ def emode(lcd):
         res = lcd.emode_set(*args)
         sys.stdout.write(' done\n')
 
+def get_ddram_addr(lcd):
+    """Get DDRAM address."""
+
+    sys.stdout.write('Requesting DDRAM address counter ...')
+    ac = lcd.checkBF()
+    sys.stdout.write(' done\n')
+    print('Got: {}'.format(ac))
+
+def set_ddram_addr(lcd):
+    """Set DDRAM address."""
+
+    ac = ask_int('address counter', 0, 127)
+    sys.stdout.write('Setting DDRAM address counter to {} ...'.format(ac))
+    ddram = lcd.set_ddram_addr(ac)
+    sys.stdout.write(' done\n')
+
 def read_ddram(lcd):
     """Read DDRAM contents and print it."""
 
@@ -200,6 +216,8 @@ top_choices = [
     ('Return Home', ret_home),
     ('Display ON/OFF Control', display_ctl),
     ('Entry Mode', emode),
+    ('Get DDRAM address', get_ddram_addr),
+    ('Set DDRAM address', set_ddram_addr),
     ('Read DDRAM', read_ddram),
     ('Reinitialize display', reinit),
     ('Quit', quit_prog)

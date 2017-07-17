@@ -289,13 +289,8 @@ class WS0010:
 
         self.sendI(IMASK_GCMODE_PWR)
 
-    def puts(self, string, line):
-        """Output a 'string' to specified 'line' of screen."""
-
-        # Circle line number (take line_number modulo line_numbers) and get DDRAM address
-        line = (line - 1) % 2 + 1
-        addr = DDRAM_ADDR[line - 1]
-        self.sendI(IMASK_DDRAM_ADDR | addr)
+    def puts(self, string):
+        """Output a 'string' beginning from current position of screen."""
 
         # Output string
         for char in string:
@@ -304,6 +299,26 @@ class WS0010:
             except KeyError:
                 symbol = ord(char) & 0xFF
             self.sendD(symbol)
+
+    def putline(self, string, line):
+        """Output a 'string' to specified 'line' of screen."""
+
+        # Circle line number (take line_number modulo line_numbers) and get DDRAM address
+        line = (line - 1) % 2 + 1
+        addr = DDRAM_ADDR[line - 1]
+        self.sendI(IMASK_DDRAM_ADDR | addr)
+
+        # Output string
+        puts(string)
+
+    def set_ddram_addr(self, ac=0):
+        """Set DDRAM address. If address 'ac' is not passed it will be 0. """
+
+        if ac < 0:
+            ac = 0
+        if ac > DDRAM_SIZE:
+            ac = DDRAM_SIZE - 1
+        self.sendI(IMASK_DDRAM_ADDR | ac)
 
     def read_ddram(self, ac=0, size=1):
         """Read 'size' bytes of data from 'ac' position."""
