@@ -62,27 +62,17 @@ def display_out(lcd):
 def move_cursor(lcd):
     """Move cursor."""
 
-    choices = ['Left', 'Right']
-    dir = ask_choice(choices, 'Where do you want to move cursor?')
-    if dir == 1:
-        f = lcd.move_cursor_left
-    else: # dir is 2
-        f = lcd.move_cursor_right
-    sys.stdout.write('Moving cursor to the {} ...'.format(choices[dir - 1]))
-    f()
+    count = ask_int('count', -1000, 1000)
+    sys.stdout.write('Moving cursor {} steps ...'.format(count))
+    lcd.move_cursor(count)
     sys.stdout.write(' done\n')
 
 def shift_display(lcd):
     """Shift display."""
 
-    choices = ['Left', 'Right']
-    dir = ask_choice(choices, 'Where do you want to shift display?')
-    if dir == 1:
-        f = lcd.shift_display_left
-    else: # dir is 2
-        f = lcd.shift_display_right
-    sys.stdout.write('Shifting display to the {} ...'.format(choices[dir - 1]))
-    f()
+    count = ask_int('count', -1000, 1000)
+    sys.stdout.write('Shifting display {} steps ...'.format(count))
+    lcd.shift_display(count)
     sys.stdout.write(' done\n')
 
 def clear_display(lcd):
@@ -170,7 +160,7 @@ def get_ddram_addr(lcd):
     """Get DDRAM address."""
 
     sys.stdout.write('Requesting DDRAM address counter ...')
-    ac = lcd.checkBF()
+    ac = lcd.getAC()
     sys.stdout.write(' done\n')
     print('Got: {}'.format(ac))
 

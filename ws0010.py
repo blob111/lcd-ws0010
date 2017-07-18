@@ -146,26 +146,26 @@ class WS0010:
                 instr |= m
         return instr
 
-    def latch(self, b):
+    def _latch(self, b):
         """Latch command with EN input."""
         self._device.write8(b | PIN_EN)
         self._device.write8(b)
 
-    def sendI(self, b):
+    def _sendI(self, b):
         """Send instruction byte."""
 
-        self.send4(b >> 4)
-        self.send4(b)
-        self.checkBF()
+        self._send4(b >> 4)
+        self._send4(b)
+        self._checkBF()
 
-    def sendD(self, b):
+    def _sendD(self, b):
         """Send data byte."""
 
-        self.send4(b >> 4, True)
-        self.send4(b, True)
-        self.checkBF()
+        self._send4(b >> 4, True)
+        self._send4(b, True)
+        self._checkBF()
 
-    def send4(self, b, rs=False):
+    def _send4(self, b, rs=False):
         """Send low nibble of byte.
         Parameter 'rs' selects what 'b' contains: instruction (False) or data (True)"""
 
@@ -173,9 +173,9 @@ class WS0010:
         if rs:
             b |= PIN_RS
         self._device.write8(b)
-        self.latch(b)
+        self._latch(b)
 
-    def checkBF(self):
+    def _checkBF(self):
         """Check BF (Busy Flag) and wait for BF will cleared.
         Return AC (Address Counter)."""
 
@@ -208,6 +208,8 @@ class WS0010:
         # Return AC
         return bfac
 
+    getAC = _checkBF
+    
     def dispctl_set(self, disp_on=None, curs_on=None, blink_on=None):
         """Set Display ON/OFF Control properties for display, cursor and blinking.
         Write the properties to LCD controller.
@@ -220,7 +222,7 @@ class WS0010:
         self._set_curs_on(curs_on)
         self._set_blink_on(blink_on)
         instr = self._dispctl_make_instr()
-        self.sendI(instr)
+        self._sendI(instr)
 
     def dispctl_get(self):
         """Return Display ON/OFF Control properties for display, cursor and blinking.
@@ -243,7 +245,7 @@ class WS0010:
         self._set_increment(increment)
         self._set_display_shift(display_shift)
         instr = self._emode_make_instr()
-        self.sendI(instr)
+        self._sendI(instr)
 
     def emode_get(self):
         """Return Display ON/OFF Control properties for display, cursor and blinking.
@@ -258,36 +260,36 @@ class WS0010:
     def clear_display(self):
         """Clear display (write 0x20 to whole DDRAM space)."""
 
-        self.sendI(IMASK_CLR_DISP)
+        self._sendI(IMASK_CLR_DISP)
 
     def ret_home(self):
         """Return home (set DDRAM address counter to 0 and return display to default position if it was shifted).
         DDRAM space is not changed."""
 
-        self.sendI(IMASK_RET_HOME)
+        self._sendI(IMASK_RET_HOME)
 
     def initialize(self):
         """Initialize controller for necessary mode (currently 4-bit mode only)."""
 
         # Synchronization sequence for 4-bit mode
-        self.send4(0)
-        self.send4(0)
-        self.send4(0)
-        self.send4(0)
-        self.send4(0)
+        self._send4(0)
+        self._send4(0)
+        self._send4(0)
+        self._send4(0)
+        self._send4(0)
 
         # Function Set: 4bit mode, necessary lines number, en-ru font table
-        self.send4(IMASK_FUNC >> 4)
-        self.sendI(IMASK_FUNC | PMASK_LINES[self._lines - 1] | PMASK_FT_ENRU)
+        self._send4(IMASK_FUNC >> 4)
+        self._sendI(IMASK_FUNC | PMASK_LINES[self._lines - 1] | PMASK_FT_ENRU)
 
         # Clear Display and Return Home
-        self.sendI(IMASK_CLR_DISP)
-        self.sendI(IMASK_RET_HOME)
+        self._sendI(IMASK_CLR_DISP)
+        self._sendI(IMASK_RET_HOME)
 
     def poweroff(self):
         """Turn off power."""
 
-        self.sendI(IMASK_GCMODE_PWR)
+        self._sendI(IMASK_GCMODE_PWR)
 
     def puts(self, string):
         """Output a 'string' beginning from current position of screen."""
@@ -298,7 +300,7 @@ class WS0010:
                 symbol = TRANSLATE_RU[char]
             except KeyError:
                 symbol = ord(char) & 0xFF
-            self.sendD(symbol)
+            self._sendD(symbol)
 
     def putline(self, string, line):
         """Output a 'string' to specified 'line' of screen."""
@@ -306,10 +308,10 @@ class WS0010:
         # Circle line number (take line_number modulo line_numbers) and get DDRAM address
         line = (line - 1) % 2 + 1
         addr = DDRAM_ADDR[line - 1]
-        self.sendI(IMASK_DDRAM_ADDR | addr)
+        self._sendI(IMASK_DDRAM_ADDR | addr)
 
         # Output string
-        puts(string)
+        self.puts(string)
 
     def set_ddram_addr(self, ac=0):
         """Set DDRAM address. If address 'ac' is not passed it will be 0. """
@@ -318,7 +320,7 @@ class WS0010:
             ac = 0
         if ac > DDRAM_SIZE:
             ac = DDRAM_SIZE - 1
-        self.sendI(IMASK_DDRAM_ADDR | ac)
+        self._sendI(IMASK_DDRAM_ADDR | ac)
 
     def read_ddram(self, ac=0, size=1):
         """Read 'size' bytes of data from 'ac' position."""
@@ -333,8 +335,8 @@ class WS0010:
             size = DDRAM_SIZE
 
         # Save current address and set it to 'ac'
-        saved_ac = self.checkBF()
-        self.sendI(IMASK_DDRAM_ADDR | ac)
+        saved_ac = self.getAC()
+        self._sendI(IMASK_DDRAM_ADDR | ac)
 
         # Set RS and R/W pins
         ctl = PIN_RS | PIN_RW | PIN_DATA
@@ -369,22 +371,51 @@ class WS0010:
         self._device.write8(0)
 
         # Restore saved address counter
-        self.sendI(IMASK_DDRAM_ADDR | saved_ac)
+        self._sendI(IMASK_DDRAM_ADDR | saved_ac)
 
         return str
 
-    def move_cursor_right(self):
-        """Move cursor right. Address counter incremented."""
-        self.sendI(IMASK_CURS_DISP_SHIFT | PMASK_SHIFT_MOVE_RIGHT)
+    def move_cursor(self, count=1):
+        """Move cursor. Argument 'count' defines direction and steps number.
+        Positive value moves cursor ahead (to the right) from current position.
+        Negative value moves cursor behind (to the left) from current position.
+        If 'count' not provided value 1 assumed (one step ahead or right)
+        For one step (positive or negative) instruction 'Cursor/Display Shift' used.
+        For more than one step set directly by means of instruction 'Set DDRAM Address'.
+        Real change calculated as current AC plus 'count' modulo DDRAM_SIZE."""
+        
+        if count == 0:
+            pass
+        elif count == 1:
+            self._sendI(IMASK_CURS_DISP_SHIFT | PMASK_SHIFT_MOVE_RIGHT)
+        elif count == -1:
+            self._sendI(IMASK_CURS_DISP_SHIFT)
+        else:
+            cur_ac = self.getAC()
+            new_ac = (cur_ac + count) % DDRAM_SIZE
+            self._sendI(IMASK_DDRAM_ADDR | new_ac)
 
-    def move_cursor_left(self):
-        """Move cursor left. Address counter decremented."""
-        self.sendI(IMASK_CURS_DISP_SHIFT)
+    def shift_display(self, count=1):
+        """Shift display. Argument 'count' defines direction and steps number.
+        Positive value shifts display ahead (to the right) from current position.
+        Negative value shifts display behind (to the left) from current position.
+        If 'count' not provided value 1 assumed (one step ahead or right)
+        For any steps value instruction 'Cursor/Display Shift' used.
+        Real change calculated as absolute value of 'count' modulo DDRAM_SIZE divided by lines number."""
+        
+        if count != 0:
+            mod_count = abs(count) % int(DDRAM_SIZE / self._lines)
+            instr = IMASK_CURS_DISP_SHIFT | PMASK_DISP_SHIFT
+            if count > 0:
+                instr |= PMASK_SHIFT_MOVE_RIGHT
+            while mod_count:
+                self._sendI(instr)
+                mod_count -= 1
 
     def shift_display_right(self):
         """Shift display right."""
-        self.sendI(IMASK_CURS_DISP_SHIFT | PMASK_DISP_SHIFT | PMASK_SHIFT_MOVE_RIGHT)
+        self._sendI(IMASK_CURS_DISP_SHIFT | PMASK_DISP_SHIFT | PMASK_SHIFT_MOVE_RIGHT)
 
     def shift_display_left(self):
         """Shift display left."""
-        self.sendI(IMASK_CURS_DISP_SHIFT | PMASK_DISP_SHIFT)
+        self._sendI(IMASK_CURS_DISP_SHIFT | PMASK_DISP_SHIFT)
