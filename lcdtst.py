@@ -1,6 +1,7 @@
 #! /usr/bin/python3
 
 import sys
+import readline
 import ws0010
 
 I2C_ADDRESS = 0x39
@@ -190,6 +191,7 @@ def reinit(lcd):
     lcd.initialize()
     lcd.emode_set(increment=True)
     lcd.dispctl_set(disp_on=True, curs_on=True, blink_on=True)
+    lcd.gcmpwr_set(intpwr=False)
     sys.stdout.write(' done\n')
 
 def quit_prog(lcd):
@@ -219,6 +221,7 @@ sys.stdout.write('Initializing LCD ...')
 lcd = ws0010.WS0010(I2C_ADDRESS, I2C_BUS)
 lcd.emode_set(increment=True)
 lcd.dispctl_set(disp_on=True, curs_on=True, blink_on=True)
+lcd.gcmpwr_set(intpwr=False)
 sys.stdout.write(' done\n')
 
 while True:
