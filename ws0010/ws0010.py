@@ -6,7 +6,7 @@ from time import sleep
 # ===========================================================================
 # Control pins numbering
 # URGENT NOTE. Citation from PCF8754 data sheet: "The I/Os should be high
-# before being used as inputs". Therefore while reading it must be set
+# before being used as inputs". Therefore while reading it MUST be set
 # data pins high (... | PIN_DATA)
 # ===========================================================================
 
@@ -39,8 +39,8 @@ PMASK_DISP_SHIFT        = 0x08  # Parameter: display shift (1) or cursor move (0
 PMASK_SHIFT_MOVE_RIGHT  = 0x04  # Parameter: shift/move right (1) or left (0)
 
 IMASK_GCMODE_PWR        = 0x13  # Instruction: Graphics/Character Mode and Power ON/OFF Control
-IMASK_GRAPHICS_MODE     = 0x08  # Parameter: graphics (1) or character (0) mode
-IMASK_PWR_ON            = 0x04  # Parameter: internal power on (1) or off (0)
+PMASK_GRAPHICS_MODE     = 0x08  # Parameter: graphics (1) or character (0) mode
+PMASK_PWR_ON            = 0x04  # Parameter: internal power on (1) or off (0)
 
 IMASK_FUNC              = 0x20  # Instruction: Function Set
 PMASK_8BIT_MODE         = 0x10  # Parameter: data length operation 8bit (1) or 4bit (0)
@@ -100,6 +100,8 @@ class WS0010:
         self._blink_on = False
         self._increment = False
         self._display_shift = False
+        self._graphics_mode = False
+        self._intpwr = True
         self.initialize()
 
     @staticmethod
@@ -130,6 +132,14 @@ class WS0010:
         """Set 'display_shift' property."""
         self._display_shift = self._prop_setter(self._display_shift, p)
 
+    def _set_graphics_mode(self, p):
+        """Set 'graphics_mode' property."""
+        self._graphics_mode = self._prop_setter(self._graphics_mode, p)
+
+    def _set_intpwr(self, p):
+        """Set 'intpwr' property."""
+        self._intpwr = self._prop_setter(self._intpwr, p)
+
     def _dispctl_make_instr(self):
         """Make Display ON/OFF Control instruction byte according to property values."""
         instr = IMASK_DISP_CTL
@@ -142,6 +152,14 @@ class WS0010:
         """Make Entry Mode instruction byte according to property values."""
         instr = IMASK_ENTRY_MODE
         for (p, m) in (self._increment, PMASK_INC), (self._display_shift, PMASK_DISP_SHIFT_EN):
+            if p:
+                instr |= m
+        return instr
+
+    def _gcmpwr_make_instr(self):
+        """Make GC Mode/Internal Power instruction byte according to property values."""
+        instr = IMASK_GCMODE_PWR
+        for (p, m) in (self._graphics_mode, PMASK_GRAPHICS_MODE), (self._display_shift, PMASK_PWR_ON):
             if p:
                 instr |= m
         return instr
@@ -209,7 +227,7 @@ class WS0010:
         return bfac
 
     getAC = _checkBF
-    
+
     def dispctl_set(self, disp_on=None, curs_on=None, blink_on=None):
         """Set Display ON/OFF Control properties for display, cursor and blinking.
         Write the properties to LCD controller.
@@ -249,12 +267,37 @@ class WS0010:
 
     def emode_get(self):
         """Return Display ON/OFF Control properties for display, cursor and blinking.
-        Returned properties grouped in tuple (disp_on, curs_on, blink_on).
+        Returned properties grouped in tuple (increment, display_shift).
         Returned values:
         True - property turned ON;
         False - property turned OFF."""
 
-        res = (self._disp_on, self._curs_on, self._blink_on)
+        res = (self._increment, self._display_shift)
+        return res
+
+    def gcmpwr_set(self, graphics_mode=None, intpwr=None):
+        """Set GC Mode/Internal Power properties for graphics/character mode
+        and internal power state.
+        Write the properties to LCD controller.
+        Parameter values:
+        True - property turned ON;
+        False - property turned OFF;
+        any other value - property not changed."""
+
+        self._set_graphics_mode(graphics_mode)
+        self._set_intpwr(intpwr)
+        instr = self._gcmpwr_make_instr()
+        self._sendI(instr)
+
+    def gcmpwr_get(self):
+        """Return GC Mode/Internal Power properties for graphics/character mode
+        and internal power state.
+        Returned properties grouped in tuple (graphics_mode, intpwr).
+        Returned values:
+        True - property turned ON;
+        False - property turned OFF."""
+
+        res = (self._graphics_mode, self._intpwr)
         return res
 
     def clear_display(self):
@@ -383,7 +426,7 @@ class WS0010:
         For one step (positive or negative) instruction 'Cursor/Display Shift' used.
         For more than one step set directly by means of instruction 'Set DDRAM Address'.
         Real change calculated as current AC plus 'count' modulo DDRAM_SIZE."""
-        
+
         if count == 0:
             pass
         elif count == 1:
@@ -401,8 +444,9 @@ class WS0010:
         Negative value shifts display behind (to the left) from current position.
         If 'count' not provided value 1 assumed (one step ahead or right)
         For any steps value instruction 'Cursor/Display Shift' used.
-        Real change calculated as absolute value of 'count' modulo DDRAM_SIZE divided by lines number."""
-        
+        Real change calculated as absolute value of 'count' modulo DDRAM_SIZE
+        divided by lines number."""
+
         if count != 0:
             mod_count = abs(count) % int(DDRAM_SIZE / self._lines)
             instr = IMASK_CURS_DISP_SHIFT | PMASK_DISP_SHIFT
@@ -411,11 +455,3 @@ class WS0010:
             while mod_count:
                 self._sendI(instr)
                 mod_count -= 1
-
-    def shift_display_right(self):
-        """Shift display right."""
-        self._sendI(IMASK_CURS_DISP_SHIFT | PMASK_DISP_SHIFT | PMASK_SHIFT_MOVE_RIGHT)
-
-    def shift_display_left(self):
-        """Shift display left."""
-        self._sendI(IMASK_CURS_DISP_SHIFT | PMASK_DISP_SHIFT)
