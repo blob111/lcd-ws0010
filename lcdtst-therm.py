@@ -21,15 +21,17 @@ W1_THERM_SENSOR_NAN = 85000
 M_INTERVAL = 60
 DISP_INTERVAL = 5
 
-class MTempSensor(W1ThermSensor):
+class MyTempSensor(W1ThermSensor):
     """
     My own class for 1-wire temperature sensors.
     Based on <https://github.com/timofurrer/w1thermsensor> project.
     """
 
-    _reads_all = 0
-    _reads_fail = 0
+    _read_success = 0
+    _read_crc = 0
+    _read_nan = 0
     _prev = None
+    _nosense = False
 
     def get_temperature(self, unit=DEGREES_C):
         """
@@ -38,8 +40,16 @@ class MTempSensor(W1ThermSensor):
 
         try:
             tmp = W1ThermSensor.raw_sensor_value(self, unit)
-        except !!!!!!!!!!!!!!!!
-        if self._reads is not defined:
+        except SensorNotReadyError:
+            self._read_crc += 1
+        else:
+            if int(tmp) == W1_THERM_SENSOR_NAN:
+                self._read_nan += 1
+            else:
+                self._read_success += 1
+                self._prev = tmp
+
+        return self._prev
 
 def disp_init():
     """Initialize display."""
@@ -53,3 +63,4 @@ def read_temp():
     """Read all 1W temperature sensors."""
 
 
+    for sensor in MyTempSensor.get_available_sensors():
