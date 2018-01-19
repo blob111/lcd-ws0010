@@ -44,6 +44,7 @@ SIG_WAKEUP_FD_RLEN = 8  # length of data read from signal wakeup file descriptor
 
 cleanup_objects = {
     'debug': None,
+    'lcd': None,
     'pipe_r': None,
     'pipe_w': None,
     'sigalrm': None,
@@ -58,6 +59,8 @@ dbg = None
 
 def cleanup():
     """Cleanup routine."""
+
+    global cleanup_objects
 
     sys.stderr.write('INFO: Clean-up\n')
     if cleanup_objects['itimer']:
@@ -84,6 +87,9 @@ def cleanup():
     if cleanup_objects['pipe_w']:
         os.close(cleanup_objects['pipe_w'])
         cleanup_objects['pipe_w'] = None
+    if cleanup_objects['lcd']:
+        disp_off(cleanup_objects['lcd'])
+        cleanup_objects['lcd'] = None
     if cleanup_objects['debug']:
         cleanup_objects['debug'].close()
         cleanup_objects['debug'] = None
@@ -97,6 +103,13 @@ def disp_init():
     lcd.gcmpwr_set(intpwr=False)
     return lcd
 
+def disp_off(lcd):
+    """Off display."""
+
+    lcd.clear_display()
+    lcd.ret_home()
+    lcd.dispctl_set(disp_on=False)
+
 def disp_clock(lcd):
     """Display clock."""
 
@@ -105,8 +118,6 @@ def disp_clock(lcd):
     s = strftime(CLOCK_DISP_TS_FORMAT, localtime(time()))
     dbg.dbg('Display string "{}" on LCD line #{}'.format(s, CLOCK_DISP_LINENUM))
     lcd.putline(s, CLOCK_DISP_LINENUM)
-
-    return
 
 def disp_sensor(lcd, sensor):
     """Display sensor value."""
@@ -118,10 +129,10 @@ def disp_sensor(lcd, sensor):
         dbg.dbg('Display string "{}" on LCD line #{}'.format(s, SENSOR_DISP_LINENUM))
         lcd.putline(s, SENSOR_DISP_LINENUM)
 
-    return
-
 def read_sensor(sensor):
     """Save sensor's value."""
+
+    global dbg
 
     val = int(sensor['obj'].raw_sensor_value)
     if val == W1_THERM_SENSOR_NAN:
@@ -152,7 +163,7 @@ def itimer_conv(t, date=False):
 def main():
     """Main program."""
 
-    global dbg
+    global dbg, cleanup_objects
     sensors = []
     itimer_next = {}
 
@@ -173,6 +184,7 @@ def main():
 
     # Initialize LCD
     lcd = disp_init()
+    cleanup_objects['lcd'] = lcd
 
     # Very first run
     for sensor in sensors:
