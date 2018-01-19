@@ -1,16 +1,20 @@
 #! /usr/bin/python3
 #
 # 1st line: date[DD.MM.YYYY] time[HH:MM]
-# 2nd line: id[IIII] err[EE%] temp[+NN.N]
+# 2nd line: id[NNNN]: err[ENN%] temp[+NN.N]
 
 import os
 import sys
 import select
 import signal
 import fcntl
-import time
 import struct
-from fractions import gcd
+from time import time, localtime, strftime
+from math import modf, ceil
+try:
+    from math import gcd
+except ImportError:
+    from fractions import gcd
 from w1thermsensor import W1ThermSensor
 from debug import Debug
 from ws0010 import WS0010
@@ -27,9 +31,14 @@ W1_SLAVES_FILE = W1_MASTER_DIR + 'w1_master_slaves' # the file contains number o
 W1_THERM_SCALE_FACTOR = lambda x: x * 0.001         # scale function to convert raw sensor value in Celsius
 W1_THERM_SENSOR_NAN = 85000                         # this sensor value means faulty reading
 
-SENSOR_READ_INTERVAL = 60   # interval between sensor reads, in seconds
-SENSOR_DISP_INTERVAL = 10   # interval between display of sensors
-CLOCK_DISP_INTERVAL = 5          # interval between display of clock
+SENSOR_READ_INTERVAL = 300                  # interval between sensor reads, in seconds
+SENSOR_DISP_INTERVAL = 10                   # interval between display of sensors
+CLOCK_DISP_INTERVAL = 60                    # interval between display of clock
+ITIMER_START_SHIFT = .003                   # add to interval timer start time
+ITIMER_TS_FORMAT = '%H:%M:%S'               # format for itimer values in debug output
+CLOCK_DISP_TS_FORMAT = '%d.%m.%Y %H:%M'     # format of clock
+CLOCK_DISP_LINENUM = 1                      # line number on LCD where clock is displayed
+SENSOR_DISP_LINENUM = 2                     # line number on LCD where sensor value is displayed
 
 SIG_WAKEUP_FD_RLEN = 8  # length of data read from signal wakeup file descriptor
 
@@ -44,6 +53,8 @@ cleanup_objects = {
     'poller': None,
     'itimer': False
 }
+
+dbg = None
 
 def cleanup():
     """Cleanup routine."""
@@ -82,17 +93,30 @@ def disp_init():
 
     lcd = WS0010(LCD_I2C_ADDRESS, LCD_I2C_BUS)
     lcd.emode_set(increment=True)
-    lcd.dispctl_set(disp_on=True, curs_on=True, blink_on=True)
+    lcd.dispctl_set(disp_on=True, curs_on=False, blink_on=False)
     lcd.gcmpwr_set(intpwr=False)
     return lcd
 
 def disp_clock(lcd):
     """Display clock."""
 
+    global dbg
+
+    s = strftime(CLOCK_DISP_TS_FORMAT, localtime(time()))
+    dbg.dbg('Display string "{}" on LCD line #{}'.format(s, CLOCK_DISP_LINENUM))
+    lcd.putline(s, CLOCK_DISP_LINENUM)
+
     return
 
 def disp_sensor(lcd, sensor):
     """Display sensor value."""
+
+    global dbg
+
+    if sensor['value']:
+        s = '{:4.4s}: E{:02.0f}% {:+2.1f}'.format(sensor['id_short'], sensor['e_rate'], sensor['value'])
+        dbg.dbg('Display string "{}" on LCD line #{}'.format(s, SENSOR_DISP_LINENUM))
+        lcd.putline(s, SENSOR_DISP_LINENUM)
 
     return
 
@@ -102,18 +126,33 @@ def read_sensor(sensor):
     val = int(sensor['obj'].raw_sensor_value)
     if val == W1_THERM_SENSOR_NAN:
         sensor['read_nan'] += 1
+        state = 'Fail'
     else:
-        sensor['obj'].value = W1_THERM_SCALE_FACTOR(val)
+        sensor['value'] = W1_THERM_SCALE_FACTOR(val)
         sensor['read_success'] += 1
+        state = 'Success'
+    read_fail = sensor['read_crc'] + sensor['read_nan']
+    sensor['e_rate'] = 100 * read_fail / (read_fail + sensor['read_success'])
+    dbg.dbg('{}, id: {:4.4s}, raw: {}, success: {}, crc: {}, nan: {}, e_rate: {}'.format(state,
+        sensor['id_short'], val, sensor['read_success'], sensor['read_crc'], sensor['read_nan'], sensor['e_rate']))
 
 def signal_handler(signal, frame):
     """Signal handler."""
 
     return
 
+def itimer_conv(t, date=False):
+    """Format time into convenient view."""
+
+    ts = round(t, 3)
+    ts_string = strftime(ITIMER_TS_FORMAT, localtime(ts))
+    ts_fraction = int(modf(ts)[0] * 1000)
+    return '{}.{:03d}'.format(ts_string, ts_fraction)
+
 def main():
     """Main program."""
 
+    global dbg
     sensors = []
     itimer_next = {}
 
@@ -123,7 +162,7 @@ def main():
 
     # Initialize sensors
     for sensor in W1ThermSensor.get_available_sensors():
-        sensors.append({'obj': sensor, 'read_success': 0, 'read_crc': 0, 'read_nan': 0, 'value': None})
+        sensors.append({'obj': sensor, 'id_short': sensor.id[-4:], 'value': None, 'read_success': 0, 'read_crc': 0, 'read_nan': 0, 'e_rate': 0})
     if len(sensors) == 0:
         sys.stderr.write('\nERROR: No sensors found\n')
         cleanup()
@@ -134,6 +173,12 @@ def main():
 
     # Initialize LCD
     lcd = disp_init()
+
+    # Very first run
+    for sensor in sensors:
+        read_sensor(sensor)
+    disp_clock(lcd)
+    disp_sensor(lcd, sensors[active_sensor_idx])
 
     # Initialize signal file descriptor
     # We must set write end of pipe to non blocking mode
@@ -153,32 +198,36 @@ def main():
     cleanup_objects['sighup'] = signal.signal(signal.SIGHUP, signal_handler)
     cleanup_objects['sigterm'] = signal.signal(signal.SIGTERM, signal_handler)
 
-    # Calculate interval timer value and bounded variables
-    itimer_value = gcd(gcd(SENSOR_READ_INTERVAL, SENSOR_DISP_INTERVAL), CLOCK_DISP_INTERVAL)
-    dbg.dbg('Calculated itimer value is {} seconds'.format(itimer_value))
-    t = time.time()
-    dbg.dbg('  Base time is {}'.format(t))
-    itimer_next['sensor_read_interval'] = t + SENSOR_READ_INTERVAL
-    dbg.dbg('  Wake up time for SENSOR_READ set to {}'.format(itimer_next['sensor_read_interval']))
-    itimer_next['sensor_disp_interval'] = t + SENSOR_DISP_INTERVAL
-    dbg.dbg('  Wake up time for SENSOR_DISP set to {}'.format(itimer_next['sensor_disp_interval']))
-    itimer_next['clock_disp_interval'] = t + CLOCK_DISP_INTERVAL
-    dbg.dbg('  Wake up time for CLOCK_DISP set to {}'.format(itimer_next['clock_disp_interval']))
-
     # Create poller and register file descriptors
     poller = select.epoll()
     cleanup_objects['poller'] = poller
     poller.register(pipe_r, select.EPOLLIN)
 
+    # Calculate interval timer value
+    itimer_value = gcd(gcd(SENSOR_READ_INTERVAL, SENSOR_DISP_INTERVAL), CLOCK_DISP_INTERVAL)
+    dbg.dbg('Calculated itimer interval value is {} seconds'.format(itimer_value))
+
     # Set interval timer
     # Initial value of timer bounded to measurement itimer_value
-    t = time.time()
+    t = time()
     t_rest = itimer_value - t % itimer_value
-    if t_rest < 0:
-        t_rest += itimer_value
-    signal.setitimer(signal.ITIMER_REAL, t_rest, itimer_value)
+#    if t_rest < 0:
+#        t_rest += itimer_value
+    t_start = t_rest + ITIMER_START_SHIFT
+    signal.setitimer(signal.ITIMER_REAL, t_start, itimer_value)
     cleanup_objects['itimer'] = True
-    dbg.dbg('ITIMER_REAL will fire at {} and each {} seconds'.format(t + t_rest, itimer_value))
+    dbg.dbg('ITIMER_REAL will fire at {} and each {} seconds'.format(itimer_conv(t + t_start), itimer_value))
+
+    # Set fire times
+    t_base = t + t_rest
+    dbg.dbg('  Base time is {}'.format(itimer_conv(t_base)))
+    f = lambda x, y: x - x % y + y * ceil((x % y) / y)
+    itimer_next['sensor_read_interval'] = f(t_base, SENSOR_READ_INTERVAL)
+    dbg.dbg('  Wake up time for SENSOR_READ set to {}'.format(itimer_conv(itimer_next['sensor_read_interval'])))
+    itimer_next['sensor_disp_interval'] = f(t_base, SENSOR_DISP_INTERVAL)
+    dbg.dbg('  Wake up time for SENSOR_DISP set to {}'.format(itimer_conv(itimer_next['sensor_disp_interval'])))
+    itimer_next['clock_disp_interval'] = f(t_base, CLOCK_DISP_INTERVAL)
+    dbg.dbg('  Wake up time for CLOCK_DISP set to {}'.format(itimer_conv(itimer_next['clock_disp_interval'])))
 
     # Main loop
     sys.stderr.write('INFO: Entering main loop\n')
@@ -199,32 +248,43 @@ def main():
                 signums = struct.unpack('{}B'.format(len(data)), data)
                 dbg.dbg('Signal numbers unpacked: {}'.format(signums))
 
+                # Make signal list have unique numbers only
+                signums = set(signums)
+
                 # Process signals
                 for signum in signums:
                     if signum == signal.SIGALRM:
+                        t = time()
                         dbg.dbg('Got SIGALRM, dispatch itimer based tasks')
 
                         # Display clock
-                        if t >= itimer_next['clock_disp_interval'] <= time.time():
+                        if itimer_next['clock_disp_interval'] <= time():
+                            dbg.dbg('Start CLOCK_DISP task')
                             disp_clock(lcd)
-                            while itimer_next['clock_disp_interval'] <= time.time():
+                            while itimer_next['clock_disp_interval'] <= time():
                                 itimer_next['clock_disp_interval'] += CLOCK_DISP_INTERVAL
+                            dbg.dbg('  Wake up time for CLOCK_DISP set to {}'.format(itimer_conv(itimer_next['clock_disp_interval'])))
+
+                        # Read sensors
+                        if itimer_next['sensor_read_interval'] <= t:
+                            dbg.dbg('Start SENSOR_READ task')
+                            for sensor in sensors:
+                                read_sensor(sensor)
+                            while itimer_next['sensor_read_interval'] <= time():
+                                itimer_next['sensor_read_interval'] += SENSOR_READ_INTERVAL
+                            dbg.dbg('  Wake up time for SENSOR_READ set to {}'.format(itimer_conv(itimer_next['sensor_read_interval'])))
 
                         # Display sensor
-                        if t >= itimer_next['sensor_disp_interval']:
-                            disp_sensor(lcd, sensors[active_sensor_idx])
+                        if itimer_next['sensor_disp_interval'] <= t:
+                            active_sensor = sensors[active_sensor_idx]
+                            dbg.dbg('Start SENSOR_DISP task, sensor number {} id {}'.format(active_sensor_idx, active_sensor['id_short']))
+                            disp_sensor(lcd, active_sensor)
                             active_sensor_idx += 1
                             if active_sensor_idx >= len(sensors):
                                 active_sensor_idx = 0
-                            while itimer_next['sensor_disp_interval'] <= time.time():
+                            while itimer_next['sensor_disp_interval'] <= time():
                                 itimer_next['sensor_disp_interval'] += SENSOR_DISP_INTERVAL
-
-                        # Read sensors
-                        if t >= itimer_next['sensor_read_interval']:
-                            for sensor in sensors:
-                                read_sensor(sensor)
-                            while itimer_next['sensor_read_interval'] <= time.time():
-                                itimer_next['sensor_read_interval'] += SENSOR_READ_INTERVAL
+                            dbg.dbg('  Wake up time for SENSOR_DISP set to {}'.format(itimer_conv(itimer_next['sensor_disp_interval'])))
 
                     elif signum == signal.SIGINT:
                         dbg.dbg('Got SIGINT, terminating')
